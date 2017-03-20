@@ -1,0 +1,6 @@
+http:
+  port: 8085
+kafka:
+  hosts:
+    - "localhost:9092"
+  topic: "accesslogs"

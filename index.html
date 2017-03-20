@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+
+<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+<script src="http://d3js.org/topojson.v1.min.js"></script> -->
+<style type="text/css">
+  .feature {
+    fill: none;
+    stroke: grey;
+    stroke-width: 1px;
+      stroke-linejoin: round;
+  }
+  .mesh {
+    fill: none;
+      stroke: lightgrey;
+      stroke-width: 2px;
+      stroke-linejoin: round;
+  }
+  h1 {
+    font-family: sans-serif;
+  }
+</style>
+</head>
+<body>
+<script type="text/javascript">
+// The mapping code mostly came from http://bl.ocks.org/phil-pedruco/7745589
+// I tried generating my own shapefile, but kept running into issues. StackOverflow 
+// to the rescue.
+
+var width = 950,
+    height = 550;
+
+// set projection
+var projection = d3.geo.mercator();
+
+// create path variable
+var path = d3.geo.path()
+    .projection(projection);
+
+
+d3.json("us.json", function(error, topo) { 
+
+    states = topojson.feature(topo, topo.objects.states).features
+
+    // set projection parameters
+    projection
+      .scale(800)
+      .center([-97, 39])
+
+    // create svg variable
+    var svg = d3.select("body").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+  // add states from topojson
+  svg.selectAll("path")
+      .data(states).enter()
+      .append("path")
+      .attr("class", "feature")
+      .style("fill", "grey")
+      .attr("d", path);
+
+    // put boarder around states 
+    svg.append("path")
+      .datum(topojson.mesh(topo, topo.objects.states, function(a, b) { return a !== b; }))
+      .attr("class", "mesh")
+      .attr("d", path);
+
+    // add circles to svg
+
+    // This is the heavy lifting for the actual plotting of pings.
+    var wsUri = "ws://" + window.location.host + "/ws"
+    websocket = new WebSocket(wsUri);
+    websocket.onopen = function(evt) { console.log("OPENED: ", evt) };
+    websocket.onmessage = function(evt) { 
+
+      // We're separating this into it's own function. Should be moved elsewhere.
+
+      function flashCircle(dat) {
+        // -125.5,24.7,-65.7,50.0 US Bounding box
+        // We cull any points that are outside the map on client side-
+        // Shouldn't be a huge hit to performance, as animation is worse
+        if (dat.Longitude > -65.7 || dat.Longitude < -125.5) {
+          return
+        }
+        if (dat.Latitude < 24.7 || dat.Latitude > 50) {
+          return
+        }
+
+        // Remove the default "US" location- farm in Kansas
+        if (dat.Latitude == 37.751 && dat.Longitude == -97.822) {
+          return
+        }
+        var coords = projection([dat.Longitude, dat.Latitude])
+
+        if (coords[0] == "NaN" || coords [1] == "NaN"){
+          return
+        }
+
+        // Map the status code to a color...
+        if (dat.StatusCode >= 400) {
+          var color = "red"
+        } else if (dat.StatusCode >= 300) {
+          var color = "yellow"
+        } else if (dat.StatusCode >= 200) {
+          var color = "green"
+        } else {
+          var color = "blue"
+        }
+        // Finally, animate the ping
+        svg
+          .append("circle")
+            .attr("cx", coords[0])
+            .attr("cy", coords[1])
+            .attr("r", "0")
+            .attr("fill", color)
+            .attr("fill-opacity", 1)
+            .transition().duration(200)
+            .attr("r", "5")
+            .transition().duration(0)
+            .transition().duration(1000)
+            .attr("r", 0)
+            .attr("fill-opacity", 0)
+            .transition().remove()
+             // Hopefully this remove gets rid of the object entirely,  
+             // preventing memory issues
+        }
+
+        // Here's where the actual code begins to execute
+
+        // If data is fed into the websocket connection fast enough, it combines
+        // multiple objects into one message. We split on new lines to parse 
+        // each object seperately.
+        var strs = evt.data.split("\n")
+        strs.forEach((str) => {
+          try{ 
+            var dat = JSON.parse(str)
+          }
+          catch (err) {
+            console.log(err)
+            console.log(str)
+            return
+          }
+          flashCircle(dat)
+      })
+        
+    };
+    websocket.onerror = function(evt) { alert(err) };
+});
+</script>
+</body>
+</html>
